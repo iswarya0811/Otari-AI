@@ -1,12 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
 import ChatWindow from './components/ChatWindow';
+import { checkBackendStatus } from './services/api';
 
 function App() {
   const [activeTab, setActiveTab] = useState('chat');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isBackendConnected, setIsBackendConnected] = useState(false);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const response = await checkBackendStatus();
+        if (response && response.status === 'success') {
+          setIsBackendConnected(true);
+        } else {
+          setIsBackendConnected(false);
+        }
+      } catch (error) {
+        setIsBackendConnected(false);
+      }
+    };
+
+    fetchStatus();
+  }, []);
 
   // Pre-populate chat with demo messages to show off UI features (including Decision Card)
   const [messages, setMessages] = useState([
@@ -301,6 +320,7 @@ function App() {
           onToggleSidebar={handleToggleSidebar} 
           onClearChat={handleClearChat}
           activeTab={activeTab}
+          isBackendConnected={isBackendConnected}
         />
 
         {/* Tab Router views */}

@@ -292,7 +292,15 @@ html, body, #root {
   background-color: #00ff66;
   box-shadow: 0 0 8px #00ff66;
   animation: pulse-glow 2s infinite;
+  transition: background-color var(--transition-normal), box-shadow var(--transition-normal);
 }
+
+.status-dot.offline {
+  background-color: #ff3b30;
+  box-shadow: 0 0 8px #ff3b30;
+  animation: pulse-glow-red 2s infinite;
+}
+
 
 .navbar-actions {
   display: flex;
@@ -1084,6 +1092,19 @@ html, body, #root {
     box-shadow: 0 0 4px #00ff66;
   }
 }
+
+@keyframes pulse-glow-red {
+  0% {
+    box-shadow: 0 0 4px #ff3b30;
+  }
+  50% {
+    box-shadow: 0 0 10px #ff3b30, 0 0 15px rgba(255, 59, 48, 0.4);
+  }
+  100% {
+    box-shadow: 0 0 4px #ff3b30;
+  }
+}
+
 
 @keyframes typing-bounce {
   0%, 100% {

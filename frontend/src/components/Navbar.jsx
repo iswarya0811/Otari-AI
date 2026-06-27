@@ -1,6 +1,6 @@
 import React from 'react';
 
-function Navbar({ onToggleSidebar, onClearChat, activeTab }) {
+function Navbar({ onToggleSidebar, onClearChat, activeTab, isBackendConnected }) {
   return (
     <header className="navbar">
       <div className="navbar-left">
@@ -20,11 +20,12 @@ function Navbar({ onToggleSidebar, onClearChat, activeTab }) {
             {activeTab === 'settings' && 'Workspace Settings'}
           </span>
           <div className="status-badge">
-            <span className="status-dot" />
-            <span>Online</span>
+            <span className={`status-dot ${isBackendConnected ? '' : 'offline'}`} />
+            <span>{isBackendConnected ? 'Backend Connected' : 'Backend Offline'}</span>
           </div>
         </div>
       </div>
+
 
       <div className="navbar-actions">
         {activeTab === 'chat' && (
