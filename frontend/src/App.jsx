@@ -3,6 +3,8 @@ import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
 import ChatWindow from './components/ChatWindow';
 import { checkBackendStatus } from './services/api';
+import { sendMessageToAI, analyzePrompt } from './services/chatService';
+
 
 function App() {
   const [activeTab, setActiveTab] = useState('chat');
@@ -62,8 +64,17 @@ function App() {
 
   // Resolve a decision card's choice
   const handleResolveDecision = (decisionId, status) => {
-    setMessages(prevMessages => 
-      prevMessages.map(msg => {
+    let decisionCategory = 'General';
+    let decisionStrategy = 'Default';
+
+    setMessages(prevMessages => {
+      const msg = prevMessages.find(m => m.decision && m.decision.id === decisionId);
+      if (msg && msg.decision) {
+        decisionCategory = msg.decision.category || 'General';
+        decisionStrategy = msg.decision.strategy || 'Default';
+      }
+
+      return prevMessages.map(msg => {
         if (msg.decision && msg.decision.id === decisionId) {
           return {
             ...msg,
@@ -74,8 +85,8 @@ function App() {
           };
         }
         return msg;
-      })
-    );
+      });
+    });
 
     // After resolving, AI sends a quick confirmation
     setIsLoading(true);
@@ -85,9 +96,17 @@ function App() {
       
       let replyText = '';
       if (status === 'approved') {
-        replyText = `Execution approved. I have initiated the command. The build completed successfully! Output bundle size: \`index-C4D9F8.js\` (142 KB). All routes are clean.`;
+        if (decisionId.startsWith('dec-route-')) {
+          replyText = `Routing approved. Prompt successfully routed using the **${decisionStrategy}** strategy (Category: **${decisionCategory}**).`;
+        } else {
+          replyText = `Execution approved. I have initiated the command. The build completed successfully! Output bundle size: \`index-C4D9F8.js\` (142 KB). All routes are clean.`;
+        }
       } else {
-        replyText = `Command rejected. I've canceled the build execution. Let me know if we need to modify dependencies or structure first.`;
+        if (decisionId.startsWith('dec-route-')) {
+          replyText = `Routing rejected. Prompt execution was canceled.`;
+        } else {
+          replyText = `Command rejected. I've canceled the build execution. Let me know if we need to modify dependencies or structure first.`;
+        }
       }
 
       setMessages(prev => [
@@ -103,8 +122,26 @@ function App() {
     }, 1200);
   };
 
+  // Helper to map category to risk level
+  const getRiskForCategory = (category) => {
+    switch (category) {
+      case 'Suspicious':
+      case 'Sensitive':
+        return 'critical';
+      case 'Coding':
+      case 'Long Context':
+        return 'medium';
+      case 'Simple':
+      case 'Writing':
+      default:
+        return 'low';
+    }
+  };
+
   // Handle user sending a message
-  const handleSendMessage = (text) => {
+  const handleSendMessage = async (text) => {
+    if (!text || !text.trim()) return;
+
     const now = new Date();
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     
@@ -119,56 +156,45 @@ function App() {
     setMessages(prev => [...prev, userMsg]);
     setIsLoading(true);
 
-    // Simulate AI response response
-    setTimeout(() => {
+    try {
+      // Call prompt router endpoint /analyze
+      const data = await analyzePrompt(text);
+      const { category, strategy, reason } = data;
+      
       const replyTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      let responseMsg = {
+      
+      // Propose routing decision in DecisionCard
+      const responseMsg = {
         id: `ai-reply-${Date.now()}`,
         sender: 'ai',
+        text: `I have analyzed your prompt. Here is the proposed cost-aware routing decision:`,
+        timestamp: replyTime,
+        decision: {
+          id: `dec-route-${Date.now()}`,
+          title: `Route Prompt: ${category}`,
+          description: `Targeting category "${category}" via "${strategy}" strategy.`,
+          risk: getRiskForCategory(category),
+          details: `Reason: ${reason}\n\n[Routing Configuration]\nCategory: ${category}\nStrategy: ${strategy}`,
+          status: 'pending',
+          category: category,
+          strategy: strategy
+        }
+      };
+
+      setMessages(prev => [...prev, responseMsg]);
+    } catch (error) {
+      const replyTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const errorMsg = {
+        id: `ai-error-${Date.now()}`,
+        sender: 'ai',
+        text: `⚠️ Error: ${error.message}`,
         timestamp: replyTime
       };
 
-      const lowerText = text.toLowerCase();
-
-      if (lowerText.includes('scan') || lowerText.includes('analyze') || lowerText.includes('bug')) {
-        responseMsg.text = `I have scanned \`src/components/\` and detected a formatting discrepancy in \`Navbar.jsx\`. Specifically, some custom icon padding values do not match your global theme tokens.\n\nI can execute a refactoring script to align all components to the new Mozilla design tokens. Shall we proceed?`;
-        responseMsg.decision = {
-          id: `dec-refactor-${Date.now()}`,
-          title: 'Apply Token Refactor',
-          description: 'Otari will run a local AST modification script to rewrite inline style bindings in Sidebar.jsx and Navbar.jsx to use CSS variables.',
-          risk: 'medium',
-          details: `// src/components/Navbar.jsx\n- style={{ width: '15px', height: '15px' }}\n+ className="nav-icon-sm"\n\n// src/index.css\n+ .nav-icon-sm {\n+   width: var(--icon-size-sm, 15px);\n+   height: var(--icon-size-sm, 15px);\n+ }`,
-          status: 'pending'
-        };
-      } else if (lowerText.includes('build') || lowerText.includes('compile') || lowerText.includes('production')) {
-        responseMsg.text = `Understood. I will run a production build bundle assessment to check code splitting efficiency and tree shaking optimization.`;
-        responseMsg.decision = {
-          id: `dec-build-${Date.now()}`,
-          title: 'Run production build',
-          description: 'Orchestrates frontend production compiling using vite to inspect package bundles.',
-          risk: 'low',
-          details: `$ npm run build\n\nvite v8.1.0 building for production...\n✓ 32 modules transformed.\ndist/index.html                  0.36 kB │ gzip: 0.25 kB\ndist/assets/index-C4D9F8.js    142.12 kB │ gzip: 44.52 kB\ndist/assets/index-B5A10A.css    12.45 kB │ gzip:  3.20 kB`,
-          status: 'pending'
-        };
-      } else if (lowerText.includes('api') || lowerText.includes('endpoint') || lowerText.includes('express')) {
-        responseMsg.text = `Here is a custom Express API endpoint mapping router that you can insert into your backend server configuration to retrieve user profile data:\n\n\`\`\`javascript\nconst express = require('express');\nconst router = express.Router();\n\n// GET /api/user/profile\nrouter.get('/profile', (req, res) => {\n  res.json({\n    username: 'guest_dev',\n    role: 'Hackathon Contributor',\n    status: 'online',\n    registeredAt: '2026-06-27T10:00:00Z'\n  });\n});\n\nmodule.exports = router;\n\`\`\`\n\nLet me know if you would like me to generate a script to create this backend file.`;
-      } else if (lowerText.includes('test') || lowerText.includes('unit')) {
-        responseMsg.text = `I have written a Jest/Vitest unit test module for your decision card selection handler to guarantee that approve and reject callbacks dispatch state changes correctly.`;
-        responseMsg.decision = {
-          id: `dec-test-${Date.now()}`,
-          title: 'Write DecisionCard.test.jsx',
-          description: 'Otari wants to create a unit test file `src/components/__tests__/DecisionCard.test.jsx` containing Mock interactions.',
-          risk: 'low',
-          details: `import { render, screen, fireEvent } from '@testing-library/react';\nimport DecisionCard from '../DecisionCard';\n\ntest('calls onResolve with approved when approve clicked', () => {\n  const handler = jest.fn();\n  render(<DecisionCard id="t1" onResolve={handler} />);\n  fireEvent.click(screen.getByText('Approve Execution'));\n  expect(handler).toHaveBeenCalledWith('t1', 'approved');\n});`,
-          status: 'pending'
-        };
-      } else {
-        responseMsg.text = `I've received your prompt: "${text}". As a local development agent, I can analyze your workspace structure, create code templates, and run compiler checks.\n\nTry asking me to "scan the codebase for bugs", "run a compilation check", or "write a unit test" to see my developer decision flows in action!`;
-      }
-
-      setMessages(prev => [...prev, responseMsg]);
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
       setIsLoading(false);
-    }, 1500);
+    }
   };
 
   const handleSelectSuggestion = (promptText) => {
